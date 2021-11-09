@@ -7,7 +7,7 @@
 ;;   You must not remove this notice, or any other, from this software.
 
 (ns simulant.validations
-  (:require [datomic.api :as d]))
+  (:require [datomic.client.api :as d]))
 
 (defn missing-multimethod-dispatch
   "Assuming values of attribute attr are keywords driving a multimethod mfn,

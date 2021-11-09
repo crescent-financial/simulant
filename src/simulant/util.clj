@@ -9,9 +9,11 @@
 (ns simulant.util
   (:require
    [clojure.edn :as edn]
+   [clojure.core.async :refer (<!!)]
    [clojure.java.io :as io]
    [clojure.set :as set]
-   [datomic.api :as d]))
+   [datomic.client.api :as d]
+   [datomic.client.api.async :as d.async]))
 
 (defn require-keys
   "Throws an exception unless the map m contains all keys named in ks"
@@ -24,16 +26,16 @@
 (defn getx
   "Like two-argument get, but throws an exception if the key is
    not found."
-  [m k] 
+  [m k]
   (let [e (get m k ::sentinel)]
     (if-not (= e ::sentinel)
-      e 
+      e
       (throw (ex-info "Missing required key" {:map m :key k})))))
 
 (defn getx-in
   "Like two-argument get-in, but throws an exception if the key is
    not found."
-  [m ks] 
+  [m ks]
   (reduce getx m ks))
 
 (defn keep-partition
@@ -75,7 +77,7 @@
   "Returns the single entity returned by a query."
   [query db & args]
   (when-let [result (-> (apply d/q query db args) ssolo)]
-    (d/entity db result)))
+    (d/pull db '[*] result)))
 
 (defn find-by
   "Returns the unique entity identified by attr and val."
@@ -91,7 +93,7 @@
   [query db & args]
   (->> (apply d/q query db args)
        (mapv (fn [items]
-               (mapv (partial d/entity db) items)))))
+               (mapv (partial d/pull db '[*]) items)))))
 
 (defn find-all-by
   "Returns all entities possessing attr."
@@ -105,33 +107,29 @@
   "Submit txes in batches of size batch-size, default is 100"
   ([conn txes] (transact-batch conn txes 100))
   ([conn txes batch-size]
-     (doseq [batch (partition-all batch-size txes)]
-       @(d/transact-async conn (mapcat identity batch))
-       :ok)))
+   (doseq [batch (partition-all batch-size txes)]
+     (<!! (d.async/transact conn {:tx-data (mapcat identity batch)}))
+     :ok)))
 
 (defn transact-pbatch
   "Submit txes in batches of size batch-size, default is 100"
   ([conn txes] (transact-pbatch conn txes 100))
   ([conn txes batch-size]
-     (->> (partition-all batch-size txes)
-          (pmap #(d/transact-async conn (mapcat identity %)))
-          (map deref)
-          dorun)
-     :ok))
+   (->> (partition-all batch-size txes)
+        (pmap #(d.async/transact conn {:tx-data (mapcat identity %)}))
+        (map <!!)
+        dorun)
+   :ok))
 
 (defn tx-ent
   "Resolve entity id to entity as of the :db-after value of a tx result"
-  [txresult eid]
-  (let [{:keys [db-after tempids]} txresult]
-    (d/entity db-after (d/resolve-tempid db-after tempids eid))))
+  [{:keys [db-after tempids] :as txresult} eid]
+  (d/pull db-after '[*] (get tempids eid)))
 
 (defn tx-entids
   "Resolve entity ids to entities as of the :db-after value of a tx result"
-  [txresult eids]
-  (let [{:keys [db-after tempids]} txresult]
-    (->> eids
-         (map #(d/resolve-tempid db-after tempids %))
-         sort)))
+  [{:keys [tempids] :as txresult} eids]
+  (->> eids (map tempids) sort))
 
 (defn count-by
   "Count the number of entities possessing attribute attr"
@@ -141,20 +139,6 @@
               :where [?e ?attr]]
             db attr)
        ffirst))
-
-(defprotocol Eid
-  "A simple protocol for retrieving an object's id."
-  (e [_] "identifying id for a value"))
-
-(extend-protocol Eid
-  java.lang.Long
-  (e [n] n)
-
-  datomic.Entity
-  (e [ent] (:db/id ent))
-
-  java.util.Map
-  (e [ent] (:db/id ent)))
 
 (defn hours->msec
   "Convert hours to milliseconds (as a long)"
@@ -216,7 +200,6 @@
 (defn gen-codebase
   "Generate a codebase entity representing the current codebase"
   []
-  {:db/id (d/tempid :db.part/user)
-   :repo/type :repo.type/git
+  {:repo/type :repo.type/git
    :git/uri (git-repo-uri)
    :git/sha (git-latest-sha)})

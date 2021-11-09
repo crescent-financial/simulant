@@ -8,7 +8,7 @@
   * call `perform-action` inside the body of your actions or
     use the `defaction` macro."
   (:require [clojure.stacktrace :as stacktrace]
-            [datomic.api :as d]
+            [datomic.client.api :as d]
             [simulant.sim :as sim]
             [simulant.util :refer :all]))
 
@@ -24,12 +24,13 @@
 (defn create-interrupt-service
   "Record the fact that a sim will use the interruption service."
   [conn sim]
-  (let [id (d/tempid :db.part/user)]
-    (-> @(d/transact conn [{:db/id id
-                            :sim/_services (e sim)
-                            :service/type :service.type/interrupt
-                            :service/constructor (str 'simulant.interrupt/construct-service)
-                            :service/key :simulant.interrupt/service}])
+  (let [id "interrupt-service-tempid"
+        tx-data [{:db/id id
+                  :sim/_services (:db/id sim)
+                  :service/type :service.type/interrupt
+                  :service/constructor (str 'simulant.interrupt/construct-service)
+                  :service/key :simulant.interrupt/service}]]
+    (-> (d/transact conn {:tx-data tx-data})
         (tx-ent id))))
 
 (defn- interrupt!
@@ -54,7 +55,7 @@
   called with the action and process."
   [action process f notify-interrupted notify-error]
   (let [interrupt  (getx sim/*services* :simulant.interrupt/service)
-        agent      (-> action :agent/_actions only e)]
+        agent      (-> action :agent/_actions only :db/id)]
     (if (interrupted? interrupt agent)
       (notify-interrupted action process)
       (try
@@ -70,9 +71,9 @@
   (defn log-skipped
     [action process]
     (let [action-log (getx sim/*services* :simulant.sim/actionLog)]
-      (action-log [{:db/id (d/tempid :db.part/user)
-                    :actionLog/sim (-> process :sim/_processes only e)
-                    :actionLog/action (e action)
+      (action-log [{:db/id "actionlog-tempid"
+                    :actionLog/sim (-> process :sim/_processes only :db/id)
+                    :actionLog/action (:db/id action)
                     :actionLog/skipped? true}])))
 
 
@@ -80,9 +81,9 @@
     [action process t]
     (let [action-log (getx sim/*services* :simulant.sim/actionLog)
           message (or (.getMessage t) "Failure while executing action.")]
-      (action-log [{:db/id (d/tempid :db.part/user)
-                    :actionLog/sim (-> process :sim/_processes only e)
-                    :actionLog/action (e action)
+      (action-log [{:db/id "actionlog-tempid"
+                    :actionLog/sim (-> process :sim/_processes only :db/id)
+                    :actionLog/action (:db/id action)
                     :actionLog/failure-type (-> t class str)
                     :actionLog/failure-trace (with-out-str (stacktrace/print-cause-trace t))
                     :actionLog/failure-message message}])))

@@ -10,3 +10,5 @@
 /.lein-repl-history
 /target/*
 .nrepl-port
+.cpcache/
+.lsp/

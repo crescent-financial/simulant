@@ -32,9 +32,10 @@
   which, in the absence of use of threads within an action
   implementation, results in action log entries being tagged in
   chronological order."
-  (:require [datomic.api :as d]
+  (:require [datomic.client.api :as d]
             [simulant.sim :as sim]
-            [simulant.util :refer :all]))
+            [simulant.util :refer :all])
+  (:import [java.util UUID]))
 
 (def ^{:doc "A counter to sort action log entries."}
   seq-counter (atom 0))
@@ -46,7 +47,7 @@
 (defn create-step
   "Return tx-data to create a new step of the given type."
   [type]
-  {:db/id (d/tempid :db.part/user)
+  {:db/id (str (UUID/randomUUID))
    :step/type type})
 
 (defmacro with-step
@@ -61,11 +62,10 @@
   sequence number, and a references to the action and process. If a
   current step is defined, also include a reference to it."
   [action process]
-  (merge {:db/id (d/tempid :db.part/user)
-          :actionLog/id (d/squuid)
+  (merge {:actionLog/id (str (UUID/randomUUID))
           :actionLog/sequence-number (swap! seq-counter inc)
-          :actionLog/sim (-> process :sim/_processes only e)
-          :actionLog/action (e action)}
+          :actionLog/sim (-> process :sim/_processes only :db/id)
+          :actionLog/action (:db/id action)}
          (when *current-step*
            {:actionLog/step *current-step*})))
 
