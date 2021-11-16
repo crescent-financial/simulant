@@ -46,6 +46,11 @@
   "Perform an action."
   (fn [action process] (getx-in action [:action/type :db/ident])))
 
+(defmethod perform-action :default
+  [action process]
+  (throw (ex-info (format "No method for action: %s" (:action/type action))
+                  {:action action})))
+
 ;; ## Services
 ;;
 ;; Services represent resources needed by a sim run.
@@ -80,7 +85,7 @@ need to use.")
 (defn- create-service
   [conn svc-definition]
   (let [ctor (resolve (symbol (:service/constructor svc-definition)))]
-    (assert ctor)
+    (assert ctor (format "Cannot resolve constructor: %s" (:service/constructor svc-definition)))
     (ctor conn svc-definition)))
 
 (defn- start-services

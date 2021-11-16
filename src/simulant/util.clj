@@ -112,12 +112,20 @@
      :ok)))
 
 (defn transact-pbatch
-  "Submit txes in batches of size batch-size, default is 100"
+  "Submit txes in batches of size batch-size, default is 100.
+  Removes `nil`s from `txes`."
   ([conn txes] (transact-pbatch conn txes 100))
   ([conn txes batch-size]
    (->> (partition-all batch-size txes)
-        (pmap #(d.async/transact conn {:tx-data (mapcat identity %)}))
-        (map <!!)
+        (pmap #(d.async/transact conn {:tx-data
+                                       (into [] (comp cat (remove nil?)) %)}))
+        (map (fn [chan]
+               (let [v (<!! chan)]
+                 (if (:cognitect.anomalies/anomaly v)
+                   (throw (ex-info (:cognitect.anomalies/message v)
+                                   v))
+                   v)
+                 )))
         dorun)
    :ok))
 
