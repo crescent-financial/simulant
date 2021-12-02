@@ -122,10 +122,10 @@
         (map (fn [chan]
                (let [v (<!! chan)]
                  (if (:cognitect.anomalies/anomaly v)
-                   (throw (ex-info (:cognitect.anomalies/message v)
-                                   v))
-                   v)
-                 )))
+                   (do
+                     (println v)
+                     (throw (ex-info (:cognitect.anomalies/message v) v)))
+                   v))))
         dorun)
    :ok))
 
